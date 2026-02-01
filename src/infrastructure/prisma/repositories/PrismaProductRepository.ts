@@ -1,5 +1,5 @@
 import type { PrismaClient, Product as PrismaProduct } from "@prisma/client";
-import { Product, ProductStatus } from "../../../domain/entities/Product";
+import { Product, ProductStatus, ProductType } from "../../../domain/entities/Product";
 import type { IProductRepository } from "../../../domain/repositories/IProductRepository";
 
 export class PrismaProductRepository implements IProductRepository {
@@ -19,6 +19,7 @@ export class PrismaProductRepository implements IProductRepository {
         description: data.description,
         mimeType: data.mimeType,
         data: data.data,
+        type: data.type,
         status: data.status,
         createdAt: data.createdAt,
       },
@@ -29,6 +30,7 @@ export class PrismaProductRepository implements IProductRepository {
         description: data.description,
         mimeType: data.mimeType,
         data: data.data,
+        type: data.type,
         status: data.status,
       },
     });
@@ -54,6 +56,7 @@ export class PrismaProductRepository implements IProductRepository {
       description: record.description,
       mimeType: record.mimeType,
       data: record.data,
+      type: record.type as ProductType,
       status: record.status as ProductStatus,
       createdAt: record.createdAt,
     });
@@ -82,6 +85,7 @@ export class PrismaProductRepository implements IProductRepository {
       description: record.description,
       mimeType: record.mimeType,
       data: record.data,
+      type: record.type as ProductType,
       status: record.status as ProductStatus,
       createdAt: record.createdAt,
     });
@@ -102,6 +106,7 @@ export class PrismaProductRepository implements IProductRepository {
         description: record.description,
         mimeType: record.mimeType,
         data: record.data,
+        type: record.type as ProductType,
         status: record.status as ProductStatus,
         createdAt: record.createdAt,
       })

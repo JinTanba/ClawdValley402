@@ -2,9 +2,17 @@ import { describe, expect, it, beforeEach } from "bun:test";
 import { ProcessX402Request } from "../../src/application/usecases/ProcessX402Request";
 import type { IVendorRepository } from "../../src/domain/repositories/IVendorRepository";
 import type { IProductRepository } from "../../src/domain/repositories/IProductRepository";
+import type { IPaymentRepository } from "../../src/domain/repositories/IPaymentRepository";
+import type { ITaskRepository } from "../../src/domain/repositories/ITaskRepository";
+import type { IRedeemTokenRepository } from "../../src/domain/repositories/IRedeemTokenRepository";
 import type { IPaymentGateway } from "../../src/application/ports/IPaymentGateway";
+import type { IEscrowService, EscrowResult } from "../../src/application/ports/IEscrowService";
+import { CreateRedeemToken } from "../../src/application/usecases/CreateRedeemToken";
 import { Vendor } from "../../src/domain/entities/Vendor";
-import { Product } from "../../src/domain/entities/Product";
+import { Product, ProductType } from "../../src/domain/entities/Product";
+import { Payment, PaymentStatus } from "../../src/domain/entities/Payment";
+import { Task, TaskStatus } from "../../src/domain/entities/Task";
+import { RedeemToken } from "../../src/domain/entities/RedeemToken";
 import type {
   PaymentPayload,
   PaymentRequirements,
@@ -55,6 +63,100 @@ class InMemoryProductRepository implements IProductRepository {
 
   async findByVendorId(vendorId: string): Promise<Product[]> {
     return Array.from(this.products.values()).filter((p) => p.vendorId === vendorId);
+  }
+}
+
+class InMemoryPaymentRepository implements IPaymentRepository {
+  private payments: Map<string, Payment> = new Map();
+
+  async save(payment: Payment): Promise<void> {
+    this.payments.set(payment.id, payment);
+  }
+
+  async findById(id: string): Promise<Payment | null> {
+    return this.payments.get(id) ?? null;
+  }
+
+  async findByVendorId(vendorId: string): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter((p) => p.vendorId === vendorId);
+  }
+
+  async findByStatus(status: PaymentStatus): Promise<Payment[]> {
+    return Array.from(this.payments.values()).filter((p) => p.status === status);
+  }
+
+  async findExpiredPendingEscrow(): Promise<Payment[]> {
+    const now = new Date();
+    return Array.from(this.payments.values()).filter(
+      (p) => p.status === PaymentStatus.PENDING_ESCROW && p.expiresAt && p.expiresAt < now
+    );
+  }
+
+  getAll(): Payment[] {
+    return Array.from(this.payments.values());
+  }
+}
+
+class MockEscrowService implements IEscrowService {
+  private readonly address = "0xEscrowAddress1234567890123456789012345678";
+
+  getEscrowAddress(): string {
+    return this.address;
+  }
+
+  async releaseToVendor(_payment: Payment, _vendorAddress: string): Promise<EscrowResult> {
+    return { success: true, transaction: "0xreleasetx123" };
+  }
+
+  async refundToBuyer(_payment: Payment): Promise<EscrowResult> {
+    return { success: true, transaction: "0xrefundtx123" };
+  }
+}
+
+class InMemoryTaskRepository implements ITaskRepository {
+  private tasks: Map<string, Task> = new Map();
+
+  async save(task: Task): Promise<void> {
+    this.tasks.set(task.id, task);
+  }
+
+  async findById(id: string): Promise<Task | null> {
+    return this.tasks.get(id) ?? null;
+  }
+
+  async findByVendorId(vendorId: string): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter((t) => t.vendorId === vendorId);
+  }
+
+  async findByVendorIdAndStatus(vendorId: string, status: TaskStatus): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter(
+      (t) => t.vendorId === vendorId && t.status === status
+    );
+  }
+
+  async findPendingByVendorId(vendorId: string): Promise<Task[]> {
+    return this.findByVendorIdAndStatus(vendorId, TaskStatus.PENDING);
+  }
+
+  getAll(): Task[] {
+    return Array.from(this.tasks.values());
+  }
+}
+
+class InMemoryRedeemTokenRepository implements IRedeemTokenRepository {
+  private tokens: Map<string, RedeemToken> = new Map();
+
+  async save(token: RedeemToken): Promise<RedeemToken> {
+    this.tokens.set(token.token, token);
+    return token;
+  }
+
+  async findByToken(tokenValue: string): Promise<RedeemToken | null> {
+    return this.tokens.get(tokenValue) ?? null;
+  }
+
+  getAll(): RedeemToken[] {
+    return Array.from(this.tokens.values());
   }
 }
 
@@ -135,15 +237,25 @@ class MockPaymentGateway implements IPaymentGateway {
 describe("ProcessX402Request", () => {
   let vendorRepository: InMemoryVendorRepository;
   let productRepository: InMemoryProductRepository;
+  let paymentRepository: InMemoryPaymentRepository;
+  let taskRepository: InMemoryTaskRepository;
+  let redeemTokenRepository: InMemoryRedeemTokenRepository;
   let paymentGateway: MockPaymentGateway;
+  let escrowService: MockEscrowService;
   let processX402Request: ProcessX402Request;
+  let createRedeemToken: CreateRedeemToken;
   let testVendor: Vendor;
   let testProduct: Product;
 
   beforeEach(async () => {
     vendorRepository = new InMemoryVendorRepository();
     productRepository = new InMemoryProductRepository();
+    paymentRepository = new InMemoryPaymentRepository();
+    taskRepository = new InMemoryTaskRepository();
+    redeemTokenRepository = new InMemoryRedeemTokenRepository();
     paymentGateway = new MockPaymentGateway();
+    escrowService = new MockEscrowService();
+    createRedeemToken = new CreateRedeemToken(redeemTokenRepository, 24);
 
     testVendor = Vendor.create({
       name: "Test Vendor",
@@ -163,12 +275,16 @@ describe("ProcessX402Request", () => {
     processX402Request = new ProcessX402Request(
       productRepository,
       vendorRepository,
-      paymentGateway
+      paymentGateway,
+      paymentRepository,
+      taskRepository,
+      createRedeemToken,
+      escrowService
     );
   });
 
   describe("支払いヘッダーなし", () => {
-    it("payment_requiredを返す", async () => {
+    it("payment_requiredを返す（エスクローアドレス使用）", async () => {
       const result = await processX402Request.execute({
         vendorId: testVendor.id,
         path: "weather",
@@ -178,7 +294,7 @@ describe("ProcessX402Request", () => {
       expect(result.type).toBe("payment_required");
       if (result.type === "payment_required") {
         expect(result.paymentRequired.x402Version).toBe(2);
-        expect(result.paymentRequired.accepts[0].payTo).toBe(testVendor.evmAddress);
+        expect(result.paymentRequired.accepts[0].payTo).toBe(escrowService.getEscrowAddress());
       }
     });
   });
@@ -330,6 +446,226 @@ describe("ProcessX402Request", () => {
       if (result.type === "settlement_failed") {
         expect(result.reason).toBe("Insufficient funds");
       }
+    });
+  });
+
+  describe("ASYNC商品", () => {
+    let asyncProduct: Product;
+
+    beforeEach(async () => {
+      asyncProduct = Product.create({
+        vendorId: testVendor.id,
+        path: "task/ai-analysis",
+        price: "$0.10",
+        description: "AI Analysis Task",
+        data: "",
+        type: ProductType.ASYNC,
+      });
+      await productRepository.save(asyncProduct);
+    });
+
+    it("ASYNC商品で支払い成功時にtask_createdを返す", async () => {
+      const requirements = await paymentGateway.buildPaymentRequirements({
+        scheme: "exact",
+        payTo: testVendor.evmAddress,
+        price: "$0.10",
+        network: "eip155:84532",
+      });
+
+      const paymentPayload: PaymentPayload = {
+        x402Version: 2,
+        resource: {
+          url: "http://localhost:3000/vendor1/task/ai-analysis",
+          description: asyncProduct.description,
+          mimeType: asyncProduct.mimeType,
+        },
+        accepted: requirements[0],
+        payload: { signature: "0xvalidSignature" },
+      };
+
+      const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
+
+      const result = await processX402Request.execute({
+        vendorId: testVendor.id,
+        path: "task/ai-analysis",
+        resourceUrl: "http://localhost:3000/vendor1/task/ai-analysis",
+        paymentHeader,
+        requestPayload: JSON.stringify({ input: "analyze this" }),
+      });
+
+      expect(result.type).toBe("task_created");
+      if (result.type === "task_created") {
+        expect(result.taskId).toBeTruthy();
+        expect(result.settleResponse.success).toBe(true);
+      }
+    });
+
+    it("Payment とTask が保存される（エスクローステータス）", async () => {
+      const requirements = await paymentGateway.buildPaymentRequirements({
+        scheme: "exact",
+        payTo: testVendor.evmAddress,
+        price: "$0.10",
+        network: "eip155:84532",
+      });
+
+      const paymentPayload: PaymentPayload = {
+        x402Version: 2,
+        resource: {
+          url: "http://localhost:3000/vendor1/task/ai-analysis",
+          description: asyncProduct.description,
+          mimeType: asyncProduct.mimeType,
+        },
+        accepted: requirements[0],
+        payload: { signature: "0xvalidSignature" },
+      };
+
+      const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
+
+      await processX402Request.execute({
+        vendorId: testVendor.id,
+        path: "task/ai-analysis",
+        resourceUrl: "http://localhost:3000/vendor1/task/ai-analysis",
+        paymentHeader,
+        requestPayload: JSON.stringify({ input: "analyze this" }),
+      });
+
+      const payments = paymentRepository.getAll();
+      const tasks = taskRepository.getAll();
+
+      expect(payments.length).toBe(1);
+      expect(tasks.length).toBe(1);
+      expect(payments[0].productId).toBe(asyncProduct.id);
+      expect(payments[0].status).toBe(PaymentStatus.PENDING_ESCROW);
+      expect(payments[0].expiresAt).toBeInstanceOf(Date);
+      expect(tasks[0].paymentId).toBe(payments[0].id);
+      expect(tasks[0].status).toBe(TaskStatus.PENDING);
+    });
+  });
+
+  describe("APIキー商品", () => {
+    let apiKeyProduct: Product;
+
+    beforeEach(async () => {
+      apiKeyProduct = Product.create({
+        vendorId: testVendor.id,
+        path: "api-key",
+        price: "$1.00",
+        description: "API Key Purchase",
+        data: JSON.stringify({ type: "api-key" }),
+      });
+      await productRepository.save(apiKeyProduct);
+    });
+
+    it("APIキー商品で支払い成功時にredeem_tokenを返す", async () => {
+      const requirements = await paymentGateway.buildPaymentRequirements({
+        scheme: "exact",
+        payTo: testVendor.evmAddress,
+        price: "$1.00",
+        network: "eip155:84532",
+      });
+
+      const paymentPayload: PaymentPayload = {
+        x402Version: 2,
+        resource: {
+          url: "http://localhost:3000/vendor1/api-key",
+          description: apiKeyProduct.description,
+          mimeType: apiKeyProduct.mimeType,
+        },
+        accepted: requirements[0],
+        payload: { signature: "0xvalidSignature" },
+      };
+
+      const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
+      const walletAddress = "0xABCDEF1234567890ABCDEF1234567890ABCDEF12";
+
+      const result = await processX402Request.execute({
+        vendorId: testVendor.id,
+        path: "api-key",
+        resourceUrl: "http://localhost:3000/vendor1/api-key",
+        paymentHeader,
+        requestPayload: JSON.stringify({ vendorId: "target-vendor-id", name: "My Key", walletAddress }),
+      });
+
+      expect(result.type).toBe("redeem_token");
+      if (result.type === "redeem_token") {
+        expect(result.redeemUrl).toMatch(/^\/redeem\/[a-f0-9]{64}$/);
+        expect(result.settleResponse.success).toBe(true);
+      }
+    });
+
+    it("Payment と RedeemToken が保存される", async () => {
+      const requirements = await paymentGateway.buildPaymentRequirements({
+        scheme: "exact",
+        payTo: testVendor.evmAddress,
+        price: "$1.00",
+        network: "eip155:84532",
+      });
+
+      const paymentPayload: PaymentPayload = {
+        x402Version: 2,
+        resource: {
+          url: "http://localhost:3000/vendor1/api-key",
+          description: apiKeyProduct.description,
+          mimeType: apiKeyProduct.mimeType,
+        },
+        accepted: requirements[0],
+        payload: { signature: "0xvalidSignature" },
+      };
+
+      const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
+      const walletAddress = "0xABCDEF1234567890ABCDEF1234567890ABCDEF12";
+
+      await processX402Request.execute({
+        vendorId: testVendor.id,
+        path: "api-key",
+        resourceUrl: "http://localhost:3000/vendor1/api-key",
+        paymentHeader,
+        requestPayload: JSON.stringify({ vendorId: "target-vendor-id", name: "My Key", walletAddress }),
+      });
+
+      const payments = paymentRepository.getAll();
+      const tokens = redeemTokenRepository.getAll();
+
+      expect(payments.length).toBe(1);
+      expect(tokens.length).toBe(1);
+      expect(tokens[0].paymentId).toBe(payments[0].id);
+      expect(tokens[0].vendorId).toBe("target-vendor-id");
+      expect(tokens[0].name).toBe("My Key");
+      expect(tokens[0].walletAddress).toBe(walletAddress);
+    });
+
+    it("リクエストにnameがない場合デフォルト名を使用", async () => {
+      const requirements = await paymentGateway.buildPaymentRequirements({
+        scheme: "exact",
+        payTo: testVendor.evmAddress,
+        price: "$1.00",
+        network: "eip155:84532",
+      });
+
+      const paymentPayload: PaymentPayload = {
+        x402Version: 2,
+        resource: {
+          url: "http://localhost:3000/vendor1/api-key",
+          description: apiKeyProduct.description,
+          mimeType: apiKeyProduct.mimeType,
+        },
+        accepted: requirements[0],
+        payload: { signature: "0xvalidSignature" },
+      };
+
+      const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString("base64");
+      const walletAddress = "0xABCDEF1234567890ABCDEF1234567890ABCDEF12";
+
+      await processX402Request.execute({
+        vendorId: testVendor.id,
+        path: "api-key",
+        resourceUrl: "http://localhost:3000/vendor1/api-key",
+        paymentHeader,
+        requestPayload: JSON.stringify({ vendorId: "target-vendor-id", walletAddress }),
+      });
+
+      const tokens = redeemTokenRepository.getAll();
+      expect(tokens[0].name).toBe("API Key");
     });
   });
 });

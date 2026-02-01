@@ -1,4 +1,4 @@
-import { Product } from "../../domain/entities/Product";
+import { Product, ProductType } from "../../domain/entities/Product";
 import type { IProductRepository } from "../../domain/repositories/IProductRepository";
 import type { IVendorRepository } from "../../domain/repositories/IVendorRepository";
 
@@ -10,6 +10,7 @@ export interface RegisterProductInput {
   description: string;
   mimeType?: string;
   data: string;
+  type?: ProductType;
 }
 
 export interface RegisterProductOutput {
@@ -44,6 +45,7 @@ export class RegisterProduct {
       description: input.description,
       mimeType: input.mimeType,
       data: input.data,
+      type: input.type,
     });
 
     await this.productRepository.save(product);

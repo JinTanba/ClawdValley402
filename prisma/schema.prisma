@@ -10,25 +10,92 @@ datasource db {
 model Vendor {
   id         String    @id @default(auto()) @map("_id") @db.ObjectId
   name       String
-  evmAddress String
-  apiKey     String    @unique
+  evmAddress String    @unique
+  apiKey     String?   @unique
   status     String    @default("active")
   products   Product[]
+  payments   Payment[]
+  tasks      Task[]
+  apiKeys    ApiKey[]
   createdAt  DateTime  @default(now())
 }
 
+model ApiKey {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  vendorId      String    @db.ObjectId
+  vendor        Vendor    @relation(fields: [vendorId], references: [id])
+  key           String    @unique
+  name          String
+  walletAddress String
+  status        String    @default("active")
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime?
+}
+
+model RedeemToken {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  token         String   @unique
+  vendorId      String   @db.ObjectId
+  name          String
+  walletAddress String
+  paymentId     String   @db.ObjectId
+  status        String   @default("pending")
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+}
+
 model Product {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  vendorId    String   @db.ObjectId
-  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  vendorId    String    @db.ObjectId
+  vendor      Vendor    @relation(fields: [vendorId], references: [id])
   path        String
   price       String
-  network     String   @default("eip155:84532")
+  network     String    @default("eip155:84532")
   description String
-  mimeType    String   @default("application/json")
+  mimeType    String    @default("application/json")
   data        String
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
+  type        String    @default("immediate")
+  status      String    @default("active")
+  createdAt   DateTime  @default(now())
+  payments    Payment[]
+  tasks       Task[]
 
   @@unique([vendorId, path])
+}
+
+model Payment {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  productId          String    @db.ObjectId
+  product            Product   @relation(fields: [productId], references: [id])
+  vendorId           String    @db.ObjectId
+  vendor             Vendor    @relation(fields: [vendorId], references: [id])
+  amount             String
+  network            String
+  payer              String
+  transaction        String
+  status             String    @default("pending_escrow")
+  releaseTransaction String?
+  refundTransaction  String?
+  releasedAt         DateTime?
+  refundedAt         DateTime?
+  expiresAt          DateTime?
+  createdAt          DateTime  @default(now())
+  task               Task?
+}
+
+model Task {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  paymentId      String   @unique @db.ObjectId
+  payment        Payment  @relation(fields: [paymentId], references: [id])
+  productId      String   @db.ObjectId
+  product        Product  @relation(fields: [productId], references: [id])
+  vendorId       String   @db.ObjectId
+  vendor         Vendor   @relation(fields: [vendorId], references: [id])
+  buyerAddress   String
+  requestPayload String
+  status         String   @default("pending")
+  result         String?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

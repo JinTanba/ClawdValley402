@@ -7,6 +7,8 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test tests/",
+    "test:integration": "bun test tests/integration/ --timeout 60000",
+    "permit2:approve": "bun run tests/integration/scripts/permit2-approve.ts",
     "typecheck": "tsc --noEmit",
     "db:push": "bunx prisma db push",
     "db:generate": "bunx prisma generate"
@@ -15,7 +17,10 @@
     "@types/bun": "latest",
     "@types/express": "^5.0.6",
     "@types/node": "^25.1.0",
-    "prisma": "6.19.0"
+    "@types/supertest": "^6.0.3",
+    "@x402/fetch": "^2.2.0",
+    "prisma": "6.19.0",
+    "supertest": "^7.2.2"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
@@ -28,6 +33,7 @@
     "bson": "^7.1.1",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "mongodb": "^7.0.0"
+    "mongodb": "^7.0.0",
+    "viem": "^2.45.1"
   }
 }

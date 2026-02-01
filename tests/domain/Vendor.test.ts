@@ -12,8 +12,7 @@ describe("Vendor", () => {
       expect(vendor.name).toBe("Test Vendor");
       expect(vendor.evmAddress).toBe("0x1234567890123456789012345678901234567890");
       expect(vendor.status).toBe(VendorStatus.ACTIVE);
-      expect(vendor.apiKey).toBeDefined();
-      expect(vendor.apiKey.length).toBeGreaterThan(0);
+      expect(vendor.apiKey).toBeNull();
     });
 
     it("evmAddressが0xで始まらない場合エラー", () => {
@@ -50,14 +49,14 @@ describe("Vendor", () => {
         id: "vendor-123",
         name: "Existing Vendor",
         evmAddress: "0x1234567890123456789012345678901234567890",
-        apiKey: "existing-api-key",
+        apiKey: null,
         status: VendorStatus.ACTIVE,
         createdAt: new Date("2024-01-01"),
       });
 
       expect(vendor.id).toBe("vendor-123");
       expect(vendor.name).toBe("Existing Vendor");
-      expect(vendor.apiKey).toBe("existing-api-key");
+      expect(vendor.apiKey).toBeNull();
     });
   });
 });

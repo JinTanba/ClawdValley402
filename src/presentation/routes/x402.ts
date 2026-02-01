@@ -23,11 +23,17 @@ export function createX402Routes(
 
     const resourceUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
 
+    let requestPayload: string | undefined;
+    if (req.body && Object.keys(req.body).length > 0) {
+      requestPayload = JSON.stringify(req.body);
+    }
+
     const result = await processX402Request.execute({
       vendorId,
       path,
       resourceUrl,
       paymentHeader: headerValue,
+      requestPayload,
     });
 
     switch (result.type) {
@@ -70,6 +76,16 @@ export function createX402Routes(
           reason: result.reason,
         });
         break;
+
+      case "task_created": {
+        const settlementHeader = paymentGateway.encodeSettleResponse(result.settleResponse);
+        res.set("PAYMENT-RESPONSE", settlementHeader);
+        res.status(200).json({
+          taskId: result.taskId,
+          message: "Task created. Poll /tasks/:taskId/result for results.",
+        });
+        break;
+      }
 
       case "not_found":
         res.status(404).json({ error: result.reason });

@@ -1,5 +1,4 @@
 import { ObjectId } from "bson";
-import { randomUUID } from "crypto";
 
 export enum VendorStatus {
   ACTIVE = "active",
@@ -10,7 +9,7 @@ export interface VendorProps {
   id: string;
   name: string;
   evmAddress: string;
-  apiKey: string;
+  apiKey: string | null;
   status: VendorStatus;
   createdAt: Date;
 }
@@ -24,7 +23,7 @@ export interface ReconstructVendorInput {
   id: string;
   name: string;
   evmAddress: string;
-  apiKey: string;
+  apiKey: string | null;
   status: VendorStatus;
   createdAt: Date;
 }
@@ -44,7 +43,7 @@ export class Vendor {
     return this.props.evmAddress;
   }
 
-  get apiKey(): string {
+  get apiKey(): string | null {
     return this.props.apiKey;
   }
 
@@ -63,7 +62,7 @@ export class Vendor {
       id: new ObjectId().toHexString(),
       name: input.name,
       evmAddress: input.evmAddress,
-      apiKey: Vendor.generateApiKey(),
+      apiKey: null,
       status: VendorStatus.ACTIVE,
       createdAt: new Date(),
     });
@@ -93,10 +92,6 @@ export class Vendor {
     if (!/^[0-9a-fA-F]+$/.test(hexPart)) {
       throw new Error("evmAddress must be a valid hex string");
     }
-  }
-
-  private static generateApiKey(): string {
-    return `vk_${randomUUID().replace(/-/g, "")}`;
   }
 
   toJSON(): VendorProps {

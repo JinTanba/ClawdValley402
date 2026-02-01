@@ -5,6 +5,11 @@ export enum ProductStatus {
   INACTIVE = "inactive",
 }
 
+export enum ProductType {
+  IMMEDIATE = "immediate",
+  ASYNC = "async",
+}
+
 export interface ProductProps {
   id: string;
   vendorId: string;
@@ -14,6 +19,7 @@ export interface ProductProps {
   description: string;
   mimeType: string;
   data: string;
+  type: ProductType;
   status: ProductStatus;
   createdAt: Date;
 }
@@ -26,6 +32,7 @@ export interface CreateProductInput {
   description: string;
   mimeType?: string;
   data: string;
+  type?: ProductType;
 }
 
 export interface ReconstructProductInput {
@@ -37,6 +44,7 @@ export interface ReconstructProductInput {
   description: string;
   mimeType: string;
   data: string;
+  type: ProductType;
   status: ProductStatus;
   createdAt: Date;
 }
@@ -76,6 +84,10 @@ export class Product {
     return this.props.data;
   }
 
+  get type(): ProductType {
+    return this.props.type;
+  }
+
   get status(): ProductStatus {
     return this.props.status;
   }
@@ -97,6 +109,7 @@ export class Product {
       description: input.description,
       mimeType: input.mimeType ?? "application/json",
       data: input.data,
+      type: input.type ?? ProductType.IMMEDIATE,
       status: ProductStatus.ACTIVE,
       createdAt: new Date(),
     });
@@ -112,9 +125,14 @@ export class Product {
       description: input.description,
       mimeType: input.mimeType,
       data: input.data,
+      type: input.type,
       status: input.status,
       createdAt: input.createdAt,
     });
+  }
+
+  isAsync(): boolean {
+    return this.props.type === ProductType.ASYNC;
   }
 
   private static validatePath(path: string): void {

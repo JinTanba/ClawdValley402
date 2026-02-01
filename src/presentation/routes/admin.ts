@@ -34,7 +34,7 @@ export function createAdminRoutes(
     try {
       const idParam = req.params.id;
       const vendorId = Array.isArray(idParam) ? idParam[0] : idParam;
-      const { path, price, network, description, mimeType, data } = req.body;
+      const { path, price, network, description, mimeType, data, type } = req.body;
 
       const result = await registerProduct.execute({
         vendorId,
@@ -44,6 +44,7 @@ export function createAdminRoutes(
         description,
         mimeType,
         data,
+        type,
       });
 
       res.status(201).json({
@@ -55,6 +56,7 @@ export function createAdminRoutes(
           network: result.product.network,
           description: result.product.description,
           mimeType: result.product.mimeType,
+          type: result.product.type,
           status: result.product.status,
           createdAt: result.product.createdAt,
         },
